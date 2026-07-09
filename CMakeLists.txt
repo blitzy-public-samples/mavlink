@@ -23,7 +23,7 @@ option(USE_SYSTEM_PYMAVLINK "Generate mavlink files with system-wide installed m
 option(WITH_TESTS "Build test programs." OFF)
 option(WITH_BUILD_DEPS "Build dependencies." OFF) # no deps currently to build
 option(WITH_BUILD_STATIC "Build preferring static linking." ON)
-option(MAVLINK_BUILD_TESTS "Build the MAVLink in-repo test suite (pytest + C round-trip via CTest)." OFF)
+option(MAVLINK_BUILD_TESTS "Build the MAVLink in-repo test suite" OFF)
 
 # variables
 set(ROOT_THREAD TRUE CACHE INTERNAL "Is this the top level of the recursion?")
@@ -193,8 +193,8 @@ if (BUILD_TEST)
     endif()
 endif()
 
-# in-repo test suite (opt-in; default OFF keeps standard builds unchanged)
-if (MAVLINK_BUILD_TESTS)
+# in-repo test suite (opt-in; default OFF keeps normal builds unchanged)
+if(MAVLINK_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
