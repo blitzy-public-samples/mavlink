@@ -31,12 +31,17 @@ endif()
 
 # Generate the MAVLink 2 `common` C headers into this target's binary directory.
 # --wire-protocol=2.0 is REQUIRED: mavgen defaults to 1.0.
-# The PYTHONPATH prefix makes the in-tree pymavlink submodule importable for
-# `-m pymavlink.tools.mavgen`. ${CMAKE_SOURCE_DIR} is the repo root (this is a
-# subdirectory, so ${CMAKE_CURRENT_SOURCE_DIR} would incorrectly point at tests/c).
+# PYTHONPATH is set authoritatively to the repo root so that
+# `-m pymavlink.tools.mavgen` ALWAYS resolves to the pinned in-tree pymavlink
+# submodule and can never be shadowed by an inherited PYTHONPATH entry pointing
+# at a different pymavlink (deterministic, supply-chain-safe generation).
+# ${CMAKE_SOURCE_DIR} is the repo root (this is a subdirectory, so
+# ${CMAKE_CURRENT_SOURCE_DIR} would incorrectly point at tests/c). mavgen's own
+# dependencies (future, lxml, fastcrc) resolve from site-packages and therefore
+# remain importable without inheriting the ambient PYTHONPATH.
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/common/mavlink.h
-    COMMAND ${CMAKE_COMMAND} -E env "PYTHONPATH=$ENV{PYTHONPATH}:${CMAKE_SOURCE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E env "PYTHONPATH=${CMAKE_SOURCE_DIR}"
             ${PYTHON_EXECUTABLE} -m pymavlink.tools.mavgen
             --lang=C --wire-protocol=2.0
             --output=${CMAKE_CURRENT_BINARY_DIR}
