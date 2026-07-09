@@ -27,7 +27,8 @@ static mavlink_system_t mavlink_system = {42, 11,};
 #define MAVLINK_ASSERT(x) assert(x)
 /* Empty stub: required because MAVLINK_USE_CONVENIENCE_FUNCTIONS is defined.
    The round-trip is driven manually with mavlink_msg_to_send_buffer +
-   mavlink_parse_char, so this stub does not need to route bytes. */
+   mavlink_frame_char_buffer (see loopback below), so this stub does not
+   need to route bytes. */
 static void comm_send_ch(mavlink_channel_t chan, uint8_t c) { (void)chan; (void)c; }
 
 #include <mavlink.h>   /* resolves to common/mavlink.h via -I<bindir>/common */
@@ -43,15 +44,33 @@ static void comm_send_ch(mavlink_channel_t chan, uint8_t c) { (void)chan; (void)
 /* ------------------------------------------------------------------------- *
  * Loopback helper: feed a serialized buffer byte-by-byte into the parser.   *
  * Returns true if a complete, CRC-valid frame was decoded into `rx`         *
- * (i.e. mavlink_parse_char reported MAVLINK_FRAMING_OK); false otherwise.   *
- * A fresh mavlink_status_t is used for every call so tests stay isolated    *
- * and parallel-safe.                                                        *
+ * (i.e. the parser reported MAVLINK_FRAMING_OK); false otherwise.           *
+ *                                                                           *
+ * Isolation: this uses mavlink_frame_char_buffer() with CALLER-OWNED local  *
+ * parse buffers -- a fresh mavlink_message_t and mavlink_status_t that are   *
+ * zeroed on entry -- rather than the channel API (mavlink_parse_char). The   *
+ * channel API keeps its parse state in the library's internal static        *
+ * per-channel arrays (mavlink_get_channel_status/buffer), so passing a local *
+ * mavlink_status_t there would only receive an OUTPUT copy and would NOT     *
+ * reset the actual parser between calls. Owning the parse state locally      *
+ * means every loopback starts from a pristine parser, so each round-trip is  *
+ * truly isolated and parallel-safe (this mirrors the upstream test_issues.c  *
+ * loopback pattern).                                                         *
+ *                                                                           *
+ * Note: mavlink_frame_char_buffer() returns MAVLINK_FRAMING_BAD_CRC (2) on a *
+ * bad checksum, so the result is compared explicitly against                 *
+ * MAVLINK_FRAMING_OK (1). A plain truthiness test would treat a bad-CRC (2)  *
+ * frame as success and defeat the corrupted-CRC negative test.               *
  * ------------------------------------------------------------------------- */
 static bool loopback(const uint8_t *buf, uint16_t n, mavlink_message_t *rx) {
-    mavlink_status_t st;
-    memset(&st, 0, sizeof(st));          /* fresh status each call */
+    mavlink_message_t parse_buf;                     /* local parse message buffer */
+    mavlink_status_t  parse_status;                  /* local parse state          */
+    mavlink_status_t  r_status;                      /* per-message output status  */
+    memset(&parse_buf, 0, sizeof(parse_buf));        /* pristine parser each call  */
+    memset(&parse_status, 0, sizeof(parse_status));
     for (uint16_t i = 0; i < n; i++) {
-        if (mavlink_parse_char(MAVLINK_COMM_0, buf[i], rx, &st)) {
+        if (mavlink_frame_char_buffer(&parse_buf, &parse_status, buf[i], rx, &r_status)
+                == MAVLINK_FRAMING_OK) {
             return true;
         }
     }
@@ -95,12 +114,19 @@ static void rt_sys_status(uint32_t present) {
     uint16_t n = mavlink_msg_to_send_buffer(buf, &msg);
     CHECK(loopback(buf, n, &rx));
     mavlink_msg_sys_status_decode(&rx, &out);
+    /* assert every packed field survives the round-trip */
     CHECK(out.onboard_control_sensors_present == present);
     CHECK(out.onboard_control_sensors_enabled == 0x0F0F0F0FUL);
+    CHECK(out.onboard_control_sensors_health == 0x00FF00FFUL);
     CHECK(out.load == 500);
     CHECK(out.voltage_battery == 12000);
     CHECK(out.current_battery == -50);
     CHECK(out.battery_remaining == 75);
+    CHECK(out.drop_rate_comm == 10);
+    CHECK(out.errors_comm == 20);
+    CHECK(out.errors_count1 == 1);
+    CHECK(out.errors_count2 == 2);
+    CHECK(out.errors_count3 == 3);
     CHECK(out.errors_count4 == 4);
 }
 
@@ -114,11 +140,16 @@ static void rt_param_value(uint16_t param_index, float param_value) {
     uint16_t n = mavlink_msg_to_send_buffer(buf, &msg);
     CHECK(loopback(buf, n, &rx));
     mavlink_msg_param_value_decode(&rx, &out);
-    CHECK(out.param_index == param_index);
+    /* param_id is char[16] on the wire, NUL/zero-padded past the 9-char
+       literal; compare all 16 bytes against the zero-padded expected value */
+    char expected_id[16];
+    memset(expected_id, 0, sizeof(expected_id));
+    memcpy(expected_id, "TESTPARAM", 9);
+    CHECK(memcmp(out.param_id, expected_id, sizeof(expected_id)) == 0);
     CHECK(out.param_value == param_value);
-    CHECK(out.param_count == 100);
     CHECK(out.param_type == MAV_PARAM_TYPE_REAL32);
-    CHECK(memcmp(out.param_id, "TESTPARAM", 9) == 0);
+    CHECK(out.param_count == 100);
+    CHECK(out.param_index == param_index);
 }
 
 /* GPS_RAW_INT (id 24) -- edge int: lat (int32). */
@@ -133,11 +164,22 @@ static void rt_gps_raw_int(int32_t lat) {
     uint16_t n = mavlink_msg_to_send_buffer(buf, &msg);
     CHECK(loopback(buf, n, &rx));
     mavlink_msg_gps_raw_int_decode(&rx, &out);
-    CHECK(out.lat == lat);
+    /* assert every packed field survives the round-trip */
     CHECK(out.time_usec == 1234567890123ULL);
     CHECK(out.fix_type == 3);
+    CHECK(out.lat == lat);
     CHECK(out.lon == -1223456789L);
+    CHECK(out.alt == 1000L);
+    CHECK(out.eph == 50000);
+    CHECK(out.epv == 200);
+    CHECK(out.vel == 300);
+    CHECK(out.cog == 400);
     CHECK(out.satellites_visible == 12);
+    CHECK(out.alt_ellipsoid == 51000L);
+    CHECK(out.h_acc == 100UL);
+    CHECK(out.v_acc == 200UL);
+    CHECK(out.vel_acc == 300UL);
+    CHECK(out.hdg_acc == 400UL);
     CHECK(out.yaw == 9000);
 }
 
@@ -150,10 +192,13 @@ static void rt_attitude(uint32_t t, float roll) {
     uint16_t n = mavlink_msg_to_send_buffer(buf, &msg);
     CHECK(loopback(buf, n, &rx));
     mavlink_msg_attitude_decode(&rx, &out);
+    /* assert every packed field survives the round-trip */
     CHECK(out.time_boot_ms == t);
     CHECK(out.roll == roll);
     CHECK(out.pitch == 0.1f);
     CHECK(out.yaw == 0.2f);
+    CHECK(out.rollspeed == 0.3f);
+    CHECK(out.pitchspeed == 0.4f);
     CHECK(out.yawspeed == 0.5f);
 }
 
@@ -168,10 +213,15 @@ static void rt_global_position_int(int32_t lat) {
     uint16_t n = mavlink_msg_to_send_buffer(buf, &msg);
     CHECK(loopback(buf, n, &rx));
     mavlink_msg_global_position_int_decode(&rx, &out);
-    CHECK(out.lat == lat);
+    /* assert every packed field survives the round-trip */
     CHECK(out.time_boot_ms == 123456UL);
+    CHECK(out.lat == lat);
     CHECK(out.lon == 87654321L);
+    CHECK(out.alt == 1000L);
+    CHECK(out.relative_alt == 500L);
     CHECK(out.vx == 10);
+    CHECK(out.vy == 20);
+    CHECK(out.vz == 30);
     CHECK(out.hdg == 18000);
 }
 
@@ -188,10 +238,26 @@ static void rt_rc_channels(uint16_t chan1_raw) {
     uint16_t n = mavlink_msg_to_send_buffer(buf, &msg);
     CHECK(loopback(buf, n, &rx));
     mavlink_msg_rc_channels_decode(&rx, &out);
-    CHECK(out.chan1_raw == chan1_raw);
+    /* assert every packed field survives the round-trip (all 18 channels) */
     CHECK(out.time_boot_ms == 999999UL);
     CHECK(out.chancount == 18);
+    CHECK(out.chan1_raw == chan1_raw);
     CHECK(out.chan2_raw == 1002);
+    CHECK(out.chan3_raw == 1003);
+    CHECK(out.chan4_raw == 1004);
+    CHECK(out.chan5_raw == 1005);
+    CHECK(out.chan6_raw == 1006);
+    CHECK(out.chan7_raw == 1007);
+    CHECK(out.chan8_raw == 1008);
+    CHECK(out.chan9_raw == 1009);
+    CHECK(out.chan10_raw == 1010);
+    CHECK(out.chan11_raw == 1011);
+    CHECK(out.chan12_raw == 1012);
+    CHECK(out.chan13_raw == 1013);
+    CHECK(out.chan14_raw == 1014);
+    CHECK(out.chan15_raw == 1015);
+    CHECK(out.chan16_raw == 1016);
+    CHECK(out.chan17_raw == 1017);
     CHECK(out.chan18_raw == 1018);
     CHECK(out.rssi == 250);
 }
@@ -210,12 +276,22 @@ static void rt_mission_item_int(int32_t x, float z) {
     uint16_t n = mavlink_msg_to_send_buffer(buf, &msg);
     CHECK(loopback(buf, n, &rx));
     mavlink_msg_mission_item_int_decode(&rx, &out);
-    CHECK(out.x == x);
-    CHECK(out.z == z);
+    /* assert every packed field survives the round-trip */
+    CHECK(out.target_system == 1);
+    CHECK(out.target_component == 2);
     CHECK(out.seq == 7);
+    CHECK(out.frame == 3);
     CHECK(out.command == 16);
-    CHECK(out.y == 555L);
+    CHECK(out.current == 1);
+    CHECK(out.autocontinue == 1);
     CHECK(out.param1 == 1.1f);
+    CHECK(out.param2 == 2.2f);
+    CHECK(out.param3 == 3.3f);
+    CHECK(out.param4 == 4.4f);
+    CHECK(out.x == x);
+    CHECK(out.y == 555L);
+    CHECK(out.z == z);
+    CHECK(out.mission_type == 0);
 }
 
 /* COMMAND_LONG (id 76) -- edge int: command (uint16); edge float: param1. */
@@ -229,10 +305,17 @@ static void rt_command_long(uint16_t command, float param1) {
     uint16_t n = mavlink_msg_to_send_buffer(buf, &msg);
     CHECK(loopback(buf, n, &rx));
     mavlink_msg_command_long_decode(&rx, &out);
-    CHECK(out.command == command);
-    CHECK(out.param1 == param1);
+    /* assert every packed field survives the round-trip */
     CHECK(out.target_system == 1);
+    CHECK(out.target_component == 2);
+    CHECK(out.command == command);
     CHECK(out.confirmation == 0);
+    CHECK(out.param1 == param1);
+    CHECK(out.param2 == 2.2f);
+    CHECK(out.param3 == 3.3f);
+    CHECK(out.param4 == 4.4f);
+    CHECK(out.param5 == 5.5f);
+    CHECK(out.param6 == 6.6f);
     CHECK(out.param7 == 7.7f);
 }
 
@@ -242,12 +325,20 @@ static void rt_statustext(uint8_t severity, const char *text) {
     mavlink_message_t msg, rx;
     mavlink_statustext_t out;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    mavlink_msg_statustext_pack(1, 1, &msg, severity, text, 0, 0);
+    /* id and chunk_seq are STATUSTEXT extension fields; use fixed non-zero
+       deterministic literals so they are actually carried on the wire and
+       verified after decode instead of being left implicitly zero. */
+    const uint16_t id = 4242;
+    const uint8_t chunk_seq = 7;
+    mavlink_msg_statustext_pack(1, 1, &msg, severity, text, id, chunk_seq);
     uint16_t n = mavlink_msg_to_send_buffer(buf, &msg);
     CHECK(loopback(buf, n, &rx));
     mavlink_msg_statustext_decode(&rx, &out);
+    /* assert every packed field survives the round-trip */
     CHECK(out.severity == severity);
     CHECK(memcmp(out.text, text, 50) == 0);   /* text is char[50] on the wire */
+    CHECK(out.id == id);
+    CHECK(out.chunk_seq == chunk_seq);
 }
 
 /* ------------------------------------------------------------------------- *
@@ -262,6 +353,10 @@ static void test_corrupt_crc(void) {
         MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_GENERIC, 0, 7, MAV_STATE_ACTIVE);
     uint16_t n = mavlink_msg_to_send_buffer(buf, &msg);
     CHECK(buf[0] == 0xFD);          /* MAVLink 2 start byte */
+    /* A valid MAVLink 2 frame is always at least MAVLINK_NUM_NON_PAYLOAD_BYTES
+       (10-byte header + 2-byte CRC = 12) long. Verify the serialized length
+       spans the header and both CRC bytes before indexing the final CRC byte. */
+    CHECK(n >= MAVLINK_NUM_NON_PAYLOAD_BYTES);
     buf[n - 1] ^= 0xFF;             /* corrupt the final CRC byte (CRC = last 2 bytes) */
     CHECK(!loopback(buf, n, &rx));  /* parser must NEVER report MAVLINK_FRAMING_OK */
 }
