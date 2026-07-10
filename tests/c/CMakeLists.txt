@@ -16,6 +16,12 @@
 set(MAVLINK_TEST_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/include/v2.0")
 set(MAVLINK_TEST_COMMON_HEADER "${MAVLINK_TEST_GEN_DIR}/common/mavlink.h")
 set(MAVLINK_TEST_COMMON_XML "${MAVLINK_SOURCE_DIR}/message_definitions/v1.0/common.xml")
+# common.xml remains the SOLE generation input, but mavgen also reads the dialects
+# it transitively includes (standard.xml -> minimal.xml). List them as explicit
+# dependencies so the generated headers are correctly rebuilt whenever any of the
+# three definition files change (accurate rebuild dependency closure).
+set(MAVLINK_TEST_STANDARD_XML "${MAVLINK_SOURCE_DIR}/message_definitions/v1.0/standard.xml")
+set(MAVLINK_TEST_MINIMAL_XML "${MAVLINK_SOURCE_DIR}/message_definitions/v1.0/minimal.xml")
 
 add_custom_command(
     OUTPUT "${MAVLINK_TEST_COMMON_HEADER}"
@@ -24,6 +30,8 @@ add_custom_command(
                                  --output=${MAVLINK_TEST_GEN_DIR}
                                  ${MAVLINK_TEST_COMMON_XML}
     DEPENDS "${MAVLINK_TEST_COMMON_XML}"
+            "${MAVLINK_TEST_STANDARD_XML}"
+            "${MAVLINK_TEST_MINIMAL_XML}"
     COMMENT "Generating common.xml C headers for the C round-trip tests"
 )
 add_custom_target(test_roundtrip_headers DEPENDS "${MAVLINK_TEST_COMMON_HEADER}")

@@ -87,6 +87,9 @@ static void test_sys_status(void) {
     CHECK(out.battery_remaining == 75);
     CHECK(out.drop_rate_comm == 10);
     CHECK(out.errors_comm == 20);
+    CHECK(out.errors_count1 == 30);
+    CHECK(out.errors_count2 == 40);
+    CHECK(out.errors_count3 == 50);
     CHECK(out.errors_count4 == 60);
 }
 
@@ -116,8 +119,16 @@ static void test_gps_raw_int(void) {
     CHECK(out.lon == INT32_MAX);
     CHECK(out.alt == -1000);
     CHECK(out.eph == 100);
+    CHECK(out.epv == 200);
+    CHECK(out.vel == 500);
+    CHECK(out.cog == 18000);
     CHECK(out.fix_type == GPS_FIX_TYPE_3D_FIX);
     CHECK(out.satellites_visible == 12);
+    CHECK(out.alt_ellipsoid == 250);
+    CHECK(out.h_acc == 300);
+    CHECK(out.v_acc == 400);
+    CHECK(out.vel_acc == 55);
+    CHECK(out.hdg_acc == 90);
     CHECK(out.yaw == 36000);
 }
 
@@ -151,6 +162,22 @@ static void test_rc_channels(void) {
     CHECK(out.time_boot_ms == 7654321u);
     CHECK(out.chancount == 18);
     CHECK(out.chan1_raw == 1000);
+    CHECK(out.chan2_raw == 1100);
+    CHECK(out.chan3_raw == 1200);
+    CHECK(out.chan4_raw == 1300);
+    CHECK(out.chan5_raw == 1400);
+    CHECK(out.chan6_raw == 1500);
+    CHECK(out.chan7_raw == 1600);
+    CHECK(out.chan8_raw == 1700);
+    CHECK(out.chan9_raw == 1800);
+    CHECK(out.chan10_raw == 1900);
+    CHECK(out.chan11_raw == 2000);
+    CHECK(out.chan12_raw == 900);
+    CHECK(out.chan13_raw == 950);
+    CHECK(out.chan14_raw == 1050);
+    CHECK(out.chan15_raw == 1150);
+    CHECK(out.chan16_raw == 1250);
+    CHECK(out.chan17_raw == 1350);
     CHECK(out.chan18_raw == 1450);
     CHECK(out.rssi == 210);
 }
@@ -167,6 +194,12 @@ static void test_mission_item_int(void) {
     CHECK(out.seq == 5);
     CHECK(out.frame == MAV_FRAME_GLOBAL);
     CHECK(out.command == MAV_CMD_NAV_WAYPOINT);
+    CHECK(out.current == 1);
+    CHECK(out.autocontinue == 1);
+    CHECK_FEQ(out.param1, 0.0f);
+    CHECK_FEQ(out.param2, 5.0f);
+    CHECK_FEQ(out.param3, 0.0f);
+    CHECK_FEQ(out.param4, 90.0f);
     CHECK(out.x == -350000000);
     CHECK(out.y == 1490000000);
     CHECK_FEQ(out.z, 100.5f);
@@ -179,9 +212,16 @@ static void test_command_long(void) {
         1, 1, MAV_CMD_NAV_WAYPOINT, 0, -FLT_MAX, FLT_MAX, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f);
     CHECK(roundtrip(&rx, &msg));
     mavlink_msg_command_long_decode(&rx, &out);
+    CHECK(out.target_system == 1);
+    CHECK(out.target_component == 1);
     CHECK(out.command == MAV_CMD_NAV_WAYPOINT);
+    CHECK(out.confirmation == 0);
     CHECK_FEQ(out.param1, -FLT_MAX);
     CHECK_FEQ(out.param2, FLT_MAX);
+    CHECK_FEQ(out.param3, 3.0f);
+    CHECK_FEQ(out.param4, 4.0f);
+    CHECK_FEQ(out.param5, 5.0f);
+    CHECK_FEQ(out.param6, 6.0f);
     CHECK_FEQ(out.param7, 7.0f);
 }
 
@@ -195,6 +235,8 @@ static void test_statustext(void) {
     mavlink_msg_statustext_decode(&rx, &out);
     CHECK(out.severity == MAV_SEVERITY_INFO);
     CHECK(memcmp(out.text, text, 50) == 0);
+    CHECK(out.id == 0);
+    CHECK(out.chunk_seq == 0);
 }
 
 static void test_global_position_int(void) {
@@ -206,8 +248,11 @@ static void test_global_position_int(void) {
     CHECK(out.time_boot_ms == 999u);
     CHECK(out.lat == -350000000);
     CHECK(out.lon == 1490000000);
+    CHECK(out.alt == 50000);
     CHECK(out.relative_alt == 1500);
     CHECK(out.vx == -100);
+    CHECK(out.vy == 200);
+    CHECK(out.vz == -50);
     CHECK(out.hdg == 27000);
 }
 
