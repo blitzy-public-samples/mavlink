@@ -7,6 +7,7 @@ This directory contains a small, self-contained test suite that validates the MA
 ## Prerequisites
 
 - Python 3.11 with `pytest` (7.4.4). The generator also requires `future` and `lxml`. For example: `pip install pytest future lxml`.
+  - `pytest` is pinned to `7.4.4` to honor the pinned `pymavlink` submodule's `pytest <= 7.4.4` constraint. Because that release predates the fix (pytest 9.0.3) for CVE-2025-71176 (CWE-379, a predictable-`/tmp` temp-directory issue), CI runs `pytest` under a private, unpredictable temporary root (`PYTEST_DEBUG_TEMPROOT`); do the same on shared multi-user hosts.
 - A C toolchain for the C tests: `gcc`, plus `cmake` and `ctest` (CMake ≥ 3.x). On `ubuntu-latest` these are preinstalled.
 - Initialized git submodules so the pinned `pymavlink` generator is present: `git submodule update --init --recursive`.
 

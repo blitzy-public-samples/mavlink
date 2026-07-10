@@ -36,10 +36,28 @@ static unsigned g_failures = 0;
     } while (0)
 
 static float f_abs(float x) { return x < 0.0f ? -x : x; }
+/*
+ * Overflow-safe approximate equality for the round-trip float checks.
+ * A single-precision "diff <= 1e-5f * (1 + |a| + |b|)" form overflows to +inf
+ * for opposite-sign finite extrema (FLT_MAX vs -FLT_MAX): both the difference
+ * and the scale saturate, degenerating to "inf <= inf" and wrongly accepting a
+ * corrupted extreme. We therefore reject non-finite operands outright and
+ * evaluate the difference and relative scale in double precision, whose range
+ * trivially holds 2*FLT_MAX (~6.8e38), so no intermediate can overflow and
+ * FLT_MAX and -FLT_MAX correctly compare unequal. The small relative-epsilon
+ * convention is preserved and no <math.h>/-lm dependency is introduced
+ * (f_abs is manual and the float->double promotion is a language feature).
+ */
 static int float_close(float a, float b) {
-    float diff  = f_abs(a - b);
-    float scale = 1.0f + f_abs(a) + f_abs(b);
-    return diff <= 1.0e-5f * scale;
+    /* Reject non-finite operands: NaN fails self-equality; an infinity has a
+     * magnitude strictly greater than the largest finite float. */
+    if (a != a || b != b) return 0;
+    if (f_abs(a) > FLT_MAX || f_abs(b) > FLT_MAX) return 0;
+    /* Evaluate in double so opposite-sign finite extrema cannot overflow. */
+    double diff  = (double)a - (double)b;
+    if (diff < 0.0) diff = -diff;
+    double scale = 1.0 + (double)f_abs(a) + (double)f_abs(b);
+    return diff <= 1.0e-5 * scale;
 }
 #define CHECK_FEQ(a, b) CHECK(float_close((a), (b)))
 
