@@ -23,6 +23,7 @@ option(USE_SYSTEM_PYMAVLINK "Generate mavlink files with system-wide installed m
 option(WITH_TESTS "Build test programs." OFF)
 option(WITH_BUILD_DEPS "Build dependencies." OFF) # no deps currently to build
 option(WITH_BUILD_STATIC "Build preferring static linking." ON)
+option(MAVLINK_BUILD_TESTS "Build the in-repo test suite." OFF)
 
 # variables
 set(ROOT_THREAD TRUE CACHE INTERNAL "Is this the top level of the recursion?")
@@ -182,6 +183,16 @@ set(v1.0Definitions
     )
 generateMavlink("1.0" "${v1.0Definitions}")
 generateMavlink("2.0" "${v1.0Definitions}")
+
+# in-repo test suite (opt-in). Default OFF keeps default builds, install rules,
+# exported targets and pkg-config output unaffected. This is intentionally distinct
+# from the WITH_TESTS option and the legacy BUILD_TEST block below, both of which are
+# left untouched.
+if (MAVLINK_BUILD_TESTS)
+    enable_language(C)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
 # testing
 if (BUILD_TEST)

@@ -1,0 +1,37 @@
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  tests:
+    name: Python and C tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest==7.4.4 future lxml
+      - name: Run Python tests
+        # pytest is pinned to 7.4.4 to honor the pymavlink submodule's
+        # `pytest <= 7.4.4` developer constraint (AAP 0.2.2/0.3.2/0.6.1). That
+        # release predates the fix (pytest 9.0.3) for CVE-2025-71176 /
+        # GHSA-6w46-j5rx-g56g (CWE-379), where pytest's predictable
+        # /tmp/pytest-of-$USER base directory allows a local symlink/TOCTOU
+        # race. Rather than break the pin, remove the exposure by pointing
+        # pytest at a private, unpredictable, mode-0700 base created with
+        # `mktemp -d`, so the predictable shared path is never used.
+        run: PYTEST_DEBUG_TEMPROOT="$(mktemp -d)" python -m pytest tests/python -v
+      - name: Configure C tests
+        run: cmake -S . -B build -DMAVLINK_BUILD_TESTS=ON
+      - name: Build C tests
+        run: cmake --build build
+      - name: Run C tests
+        run: ctest --test-dir build --output-on-failure
